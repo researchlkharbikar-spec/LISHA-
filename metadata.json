@@ -1,0 +1,6 @@
+{
+  "name": "LISHA - LncRNA Interaction Screening & Homology Assessment",
+  "description": "Scientific database and computational screening tool for lncRNA-protein, lncRNA-miRNA, and lncRNA-DNA interactions, homology assessment, and plant biotic stress biomarkers.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
