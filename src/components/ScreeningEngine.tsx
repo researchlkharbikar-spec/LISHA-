@@ -21,6 +21,7 @@ import {
   Copy,
   Check,
   Grid,
+  Edit3,
 } from 'lucide-react';
 import { HomologyComparisonMatrix } from './HomologyComparisonMatrix';
 import {
@@ -81,6 +82,7 @@ export const ScreeningEngine: React.FC<ScreeningEngineProps> = ({
   const [homologySubjectSeq, setHomologySubjectSeq] = useState(CURATED_LNCRNAS[1].sequence);
   const [alignmentType, setAlignmentType] = useState<'local' | 'global'>('local');
   const [homologyViewMode, setHomologyViewMode] = useState<'matrix' | 'pairwise'>('matrix');
+  const [isQueryEditorOpen, setIsQueryEditorOpen] = useState(false);
 
   // Results states
   const [proteinResult, setProteinResult] = useState<ProteinInteractionResult | null>(null);
@@ -293,16 +295,107 @@ export const ScreeningEngine: React.FC<ScreeningEngineProps> = ({
         </div>
       </div>
 
-      {/* Main Dual-Panel Workspace: Input Controls & Real-Time Output */}
-      <div className={`grid grid-cols-1 ${activeModule === 'homology' && homologyViewMode === 'matrix' ? 'lg:grid-cols-12' : 'lg:grid-cols-12'} gap-6`}>
-        {/* Left Column: Sequence Inputs */}
-        <div className={`${activeModule === 'homology' && homologyViewMode === 'matrix' ? 'lg:col-span-4' : 'lg:col-span-5'} space-y-4`}>
-          <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-xs space-y-4">
-            <div className="flex items-center justify-between">
-              <h3 className="font-bold text-slate-900 text-sm flex items-center gap-2">
-                <Dna className="w-4 h-4 text-blue-600" />
-                Query lncRNA Sequence
-              </h3>
+      {/* If Module 4 D3 Matrix view is active, render full-width workspace with sleek query bar */}
+      {activeModule === 'homology' && homologyViewMode === 'matrix' ? (
+        <div className="space-y-5">
+          {/* Top Bar with Mode Selector and Query Summary */}
+          <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setHomologyViewMode('matrix')}
+                className="px-3.5 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 bg-amber-600 text-white shadow-xs cursor-pointer"
+              >
+                <Grid className="w-3.5 h-3.5" />
+                <span>D3 Comparative Homology Matrix (All Templates)</span>
+              </button>
+              <button
+                onClick={() => setHomologyViewMode('pairwise')}
+                className="px-3.5 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 bg-slate-100 text-slate-700 hover:bg-slate-200 transition-colors cursor-pointer"
+              >
+                <FileText className="w-3.5 h-3.5" />
+                <span>Pairwise Alignment Traceback</span>
+              </button>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 text-xs">
+              <span className="font-semibold text-slate-500">Query lncRNA:</span>
+              <span className="px-2.5 py-1 bg-amber-50 border border-amber-200 rounded-md text-amber-900 font-mono font-bold">
+                {lncRnaName}
+              </span>
+              <span className="text-slate-400 font-mono">
+                {cleanLncRna.length} nt • GC: {gcPct}%
+              </span>
+              <button
+                onClick={() => setIsQueryEditorOpen(!isQueryEditorOpen)}
+                className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 rounded text-slate-700 font-medium text-xs flex items-center gap-1 transition-colors cursor-pointer"
+              >
+                <Edit3 className="w-3 h-3 text-slate-500" />
+                <span>{isQueryEditorOpen ? 'Hide Editor' : 'Edit Query Sequence'}</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Collapsible Query Sequence Editor if open */}
+          {isQueryEditorOpen && (
+            <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-xs space-y-3">
+              <div className="flex items-center justify-between">
+                <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
+                  Edit Query lncRNA Sequence
+                </h4>
+                <button
+                  onClick={() => handleCopySequence(cleanLncRna)}
+                  className="text-xs text-blue-600 hover:text-blue-700 flex items-center gap-1 cursor-pointer"
+                >
+                  {copied ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
+                  <span>{copied ? 'Copied' : 'Copy'}</span>
+                </button>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 mb-1">lncRNA Name</label>
+                  <input
+                    type="text"
+                    value={lncRnaName}
+                    onChange={(e) => setLncRnaName(e.target.value)}
+                    className="w-full text-xs font-mono px-3 py-2 border border-slate-300 rounded bg-slate-50 focus:bg-white"
+                  />
+                </div>
+                <div className="md:col-span-2">
+                  <label className="block text-xs font-medium text-slate-600 mb-1">FASTA / Nucleotide Sequence</label>
+                  <textarea
+                    rows={3}
+                    value={lncRnaSeq}
+                    onChange={(e) => setLncRnaSeq(e.target.value)}
+                    className="w-full text-xs font-mono px-3 py-2 border border-slate-300 rounded bg-slate-50 focus:bg-white uppercase"
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Full-width Homology Comparison Matrix */}
+          <HomologyComparisonMatrix
+            querySequence={lncRnaSeq}
+            queryName={lncRnaName}
+            onSelectTemplateForAlignment={(template) => {
+              setHomologySubjectName(template.name);
+              setHomologySubjectSeq(template.sequence);
+              setHomologyViewMode('pairwise');
+              handleRunScreening();
+            }}
+          />
+        </div>
+      ) : (
+        /* Regular Dual-Panel Workspace: Input Controls & Real-Time Output */
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+          {/* Left Column: Sequence Inputs */}
+          <div className="lg:col-span-5 space-y-4">
+            <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-xs space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="font-bold text-slate-900 text-sm flex items-center gap-2">
+                  <Dna className="w-4 h-4 text-blue-600" />
+                  Query lncRNA Sequence
+                </h3>
               <div className="flex items-center gap-2 text-xs text-slate-500 font-mono">
                 <span>{cleanLncRna.length} nt</span>
                 <span>•</span>
@@ -898,134 +991,108 @@ export const ScreeningEngine: React.FC<ScreeningEngineProps> = ({
             </div>
           )}
 
-          {/* Module 4: Homology & Alignment View */}
+          {/* Module 4: Homology Pairwise Traceback View */}
           {activeModule === 'homology' && (
             <div className="space-y-4">
-              {/* Homology Sub-Mode Selector */}
               <div className="bg-white border border-slate-200 rounded-xl p-3 shadow-xs flex flex-wrap items-center justify-between gap-2">
-                <div className="flex items-center gap-1.5">
+                <div className="flex items-center gap-2">
                   <button
                     onClick={() => setHomologyViewMode('matrix')}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors ${
-                      homologyViewMode === 'matrix'
-                        ? 'bg-amber-600 text-white shadow-xs'
-                        : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-                    }`}
+                    className="px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 bg-amber-50 text-amber-800 border border-amber-300 hover:bg-amber-100 transition-colors cursor-pointer"
                   >
                     <Grid className="w-3.5 h-3.5" />
-                    <span>D3 Visual Comparison Matrix (All Templates)</span>
+                    <span>&larr; Return to D3 Homology Matrix</span>
                   </button>
-                  <button
-                    onClick={() => setHomologyViewMode('pairwise')}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-colors ${
-                      homologyViewMode === 'pairwise'
-                        ? 'bg-amber-600 text-white shadow-xs'
-                        : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
-                    }`}
-                  >
+                  <span className="px-3 py-1.5 rounded-lg text-xs font-bold bg-amber-600 text-white shadow-xs flex items-center gap-1.5">
                     <FileText className="w-3.5 h-3.5" />
                     <span>Pairwise Alignment Traceback</span>
-                  </button>
+                  </span>
                 </div>
 
                 <span className="text-[11px] text-slate-500 font-medium">
-                  {homologyViewMode === 'matrix'
-                    ? 'Cross-species stress homology heatmap & synteny dot-plot'
-                    : `Aligning against ${homologySubjectName}`}
+                  Aligning against <strong className="text-slate-700">{homologySubjectName}</strong>
                 </span>
               </div>
 
-              {homologyViewMode === 'matrix' ? (
-                <HomologyComparisonMatrix
-                  querySequence={lncRnaSeq}
-                  queryName={lncRnaName}
-                  onSelectTemplateForAlignment={(template) => {
-                    setHomologySubjectName(template.name);
-                    setHomologySubjectSeq(template.sequence);
-                    setHomologyViewMode('pairwise');
-                    handleRunScreening();
-                  }}
-                />
-              ) : (
-                alignmentResult && (
-                  <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-xs space-y-4">
-                    <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-                      <div>
-                        <h3 className="font-bold text-slate-900 text-base">
-                          Sequence Homology & Structure Alignment
-                        </h3>
-                        <p className="text-xs text-slate-500">
-                          {alignmentType === 'local' ? 'Smith-Waterman Local Alignment' : 'Needleman-Wunsch Global Alignment'}:{' '}
-                          <span className="font-semibold text-slate-800">{lncRnaName}</span> vs{' '}
-                          <span className="font-semibold text-slate-800">{homologySubjectName}</span>
-                        </p>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-amber-50 text-amber-800 border border-amber-300">
-                          Identity: {alignmentResult.identityPercent}%
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Summary Stats */}
-                    <div className="grid grid-cols-4 gap-3 text-center">
-                      <div className="bg-slate-50 border border-slate-200 rounded p-2.5">
-                        <div className="text-lg font-bold text-slate-800 font-mono">{alignmentResult.score}</div>
-                        <div className="text-[10px] text-slate-500 uppercase">Alignment Score</div>
-                      </div>
-                      <div className="bg-slate-50 border border-slate-200 rounded p-2.5">
-                        <div className="text-lg font-bold text-emerald-700 font-mono">{alignmentResult.identityPercent}%</div>
-                        <div className="text-[10px] text-slate-500 uppercase">Sequence Identity</div>
-                      </div>
-                      <div className="bg-slate-50 border border-slate-200 rounded p-2.5">
-                        <div className="text-lg font-bold text-blue-700 font-mono">{alignmentResult.similarityPercent}%</div>
-                        <div className="text-[10px] text-slate-500 uppercase">Similarity</div>
-                      </div>
-                      <div className="bg-slate-50 border border-slate-200 rounded p-2.5">
-                        <div className="text-lg font-bold text-amber-700 font-mono">{alignmentResult.gaps}</div>
-                        <div className="text-[10px] text-slate-500 uppercase">Gaps</div>
-                      </div>
-                    </div>
-
-                    {/* Visual Alignment Output */}
+              {alignmentResult && (
+                <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-xs space-y-4">
+                  <div className="flex items-center justify-between pb-3 border-b border-slate-100">
                     <div>
-                      <h4 className="text-xs font-bold text-slate-700 mb-1.5 uppercase">
-                        Pairwise Alignment Traceback
-                      </h4>
-                      <div className="bg-slate-900 rounded-lg p-3 text-slate-200 font-mono text-[11px] overflow-x-auto leading-relaxed">
-                        <div className="text-slate-400">Query:   {alignmentResult.alignedSeq1.slice(0, 160)}</div>
-                        <div className="text-emerald-400">Match:   {alignmentResult.matchLine.slice(0, 160)}</div>
-                        <div className="text-blue-300">Subject: {alignmentResult.alignedSeq2.slice(0, 160)}</div>
-                      </div>
+                      <h3 className="font-bold text-slate-900 text-base">
+                        Sequence Homology & Structure Alignment
+                      </h3>
+                      <p className="text-xs text-slate-500">
+                        {alignmentType === 'local' ? 'Smith-Waterman Local Alignment' : 'Needleman-Wunsch Global Alignment'}:{' '}
+                        <span className="font-semibold text-slate-800">{lncRnaName}</span> vs{' '}
+                        <span className="font-semibold text-slate-800">{homologySubjectName}</span>
+                      </p>
                     </div>
-
-                    {/* Actions */}
-                    <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-slate-100">
-                      <button
-                        onClick={() =>
-                          onSaveAnalysis?.({
-                            title: `Homology: ${lncRnaName} x ${homologySubjectName}`,
-                            lncRnaName,
-                            lncRnaSequence: lncRnaSeq,
-                            interactionType: 'Homology Assessment',
-                            targetName: homologySubjectName,
-                            score: alignmentResult.identityPercent,
-                            summary: `Alignment Score: ${alignmentResult.score}, Identity: ${alignmentResult.identityPercent}%, Similarity: ${alignmentResult.similarityPercent}%, Gaps: ${alignmentResult.gaps}.`,
-                          })
-                        }
-                        className="px-3 py-1.5 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 text-xs font-medium flex items-center gap-1.5"
-                      >
-                        <Save className="w-3.5 h-3.5 text-blue-600" />
-                        <span>Save to Workspace</span>
-                      </button>
+                    <div className="flex items-center gap-2">
+                      <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-amber-50 text-amber-800 border border-amber-300">
+                        Identity: {alignmentResult.identityPercent}%
+                      </span>
                     </div>
                   </div>
-                )
+
+                  {/* Summary Stats */}
+                  <div className="grid grid-cols-4 gap-3 text-center">
+                    <div className="bg-slate-50 border border-slate-200 rounded p-2.5">
+                      <div className="text-lg font-bold text-slate-800 font-mono">{alignmentResult.score}</div>
+                      <div className="text-[10px] text-slate-500 uppercase">Alignment Score</div>
+                    </div>
+                    <div className="bg-slate-50 border border-slate-200 rounded p-2.5">
+                      <div className="text-lg font-bold text-emerald-700 font-mono">{alignmentResult.identityPercent}%</div>
+                      <div className="text-[10px] text-slate-500 uppercase">Sequence Identity</div>
+                    </div>
+                    <div className="bg-slate-50 border border-slate-200 rounded p-2.5">
+                      <div className="text-lg font-bold text-blue-700 font-mono">{alignmentResult.similarityPercent}%</div>
+                      <div className="text-[10px] text-slate-500 uppercase">Similarity</div>
+                    </div>
+                    <div className="bg-slate-50 border border-slate-200 rounded p-2.5">
+                      <div className="text-lg font-bold text-amber-700 font-mono">{alignmentResult.gaps}</div>
+                      <div className="text-[10px] text-slate-500 uppercase">Gaps</div>
+                    </div>
+                  </div>
+
+                  {/* Visual Alignment Output */}
+                  <div>
+                    <h4 className="text-xs font-bold text-slate-700 mb-1.5 uppercase">
+                      Pairwise Alignment Traceback
+                    </h4>
+                    <div className="bg-slate-900 rounded-lg p-3 text-slate-200 font-mono text-[11px] overflow-x-auto leading-relaxed">
+                      <div className="text-slate-400">Query:   {alignmentResult.alignedSeq1.slice(0, 160)}</div>
+                      <div className="text-emerald-400">Match:   {alignmentResult.matchLine.slice(0, 160)}</div>
+                      <div className="text-blue-300">Subject: {alignmentResult.alignedSeq2.slice(0, 160)}</div>
+                    </div>
+                  </div>
+
+                  {/* Actions */}
+                  <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-slate-100">
+                    <button
+                      onClick={() =>
+                        onSaveAnalysis?.({
+                          title: `Homology: ${lncRnaName} x ${homologySubjectName}`,
+                          lncRnaName,
+                          lncRnaSequence: lncRnaSeq,
+                          interactionType: 'Homology Assessment',
+                          targetName: homologySubjectName,
+                          score: alignmentResult.identityPercent,
+                          summary: `Alignment Score: ${alignmentResult.score}, Identity: ${alignmentResult.identityPercent}%, Similarity: ${alignmentResult.similarityPercent}%, Gaps: ${alignmentResult.gaps}.`,
+                        })
+                      }
+                      className="px-3 py-1.5 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 text-xs font-medium flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <Save className="w-3.5 h-3.5 text-blue-600" />
+                      <span>Save to Workspace</span>
+                    </button>
+                  </div>
+                </div>
               )}
             </div>
           )}
         </div>
       </div>
-    </div>
-  );
+    )}
+  </div>
+);
 };
