@@ -134,3 +134,57 @@ test('generateDotPlotMatrix identifies diagonal match coordinates', async () => 
   assert.ok(diagonalMatches.length > 0);
 });
 
+test('sequenceValidator enforces strict A, C, G, T, U regex and identifies invalid characters', async () => {
+  const { validateLncRnaSequence, sanitizeToRnaSequence } = await import('./sequenceValidator');
+
+  // Valid RNA sequence
+  const valid = validateLncRnaSequence('AUGCAUGCACGU');
+  assert.equal(valid.isValid, true);
+  assert.equal(valid.totalInvalidCount, 0);
+  assert.equal(valid.length, 12);
+  assert.equal(valid.composition.gcPercent, 50);
+
+  // Valid with FASTA header and whitespace and T (DNA)
+  const fasta = `>ALEX1_Oryza_sativa\naugc augc\natgc atgc`;
+  const validFasta = validateLncRnaSequence(fasta);
+  assert.equal(validFasta.isValid, true);
+  assert.equal(validFasta.header, 'ALEX1_Oryza_sativa');
+  assert.equal(validFasta.cleanedSequence.includes('T'), false); // T converted to U
+
+  // Invalid with non-nucleotide characters: X, 9, @
+  const invalid = validateLncRnaSequence('AUGCX123@UGC');
+  assert.equal(invalid.isValid, false);
+  assert.ok(invalid.totalInvalidCount >= 4);
+  const invalidChars = invalid.invalidChars.map((c) => c.char);
+  assert.ok(invalidChars.includes('X'));
+  assert.ok(invalidChars.includes('@'));
+  assert.ok(invalid.errorMessage !== null);
+
+  // Sanitize strips invalid chars
+  const sanitized = sanitizeToRnaSequence('AUGCX123@TGC');
+  assert.equal(sanitized, 'AUGCUGC');
+});
+
+test('thermodynamics nearest-neighbor calculates RNA melting temperature accurately', async () => {
+  const { calculateNearestNeighborTm, calculateSlidingWindowTm } = await import('./thermodynamics');
+
+  // Standard hairpin sequence: GGGAAACCC (GC-rich stem)
+  const hairpin = 'GGGAAACCC';
+  const thermo = calculateNearestNeighborTm(hairpin, 0.1, 0.0015, 1e-6, true);
+  assert.ok(thermo.meltingTemperatureTm > 0);
+  assert.ok(thermo.saltAdjustedTm > 20);
+  assert.ok(thermo.gcContentPercent > 60);
+  assert.ok(thermo.enthalpyDeltaH < 0); // Exothermic duplex formation
+  assert.ok(thermo.entropyDeltaS < 0);
+
+  // Higher salt concentration increases salt-adjusted Tm
+  const highSalt = calculateNearestNeighborTm(hairpin, 0.5, 0.005, 1e-6, true);
+  assert.ok(highSalt.saltAdjustedTm >= thermo.saltAdjustedTm);
+
+  // Sliding window Tm profile
+  const profile = calculateSlidingWindowTm('GGGAAACCCGGGAAACCC', 9, 3);
+  assert.ok(profile.length > 0);
+  assert.ok(profile[0].tm > 0);
+});
+
+

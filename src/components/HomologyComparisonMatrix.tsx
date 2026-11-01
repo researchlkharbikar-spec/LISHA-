@@ -50,7 +50,7 @@ export const HomologyComparisonMatrix: React.FC<HomologyComparisonMatrixProps> =
 
   // States
   const [selectedMetric, setSelectedMetric] = useState<
-    'compositeHomologyScore' | 'identityPercent' | 'score' | 'structureSimilarityPercent'
+    'compositeHomologyScore' | 'similarityPercent' | 'identityPercent' | 'score' | 'structureSimilarityPercent'
   >('compositeHomologyScore');
   const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc');
   const [speciesFilter, setSpeciesFilter] = useState<string>('All');
@@ -80,6 +80,9 @@ export const HomologyComparisonMatrix: React.FC<HomologyComparisonMatrixProps> =
         if (selectedMetric === 'compositeHomologyScore') {
           valA = a.compositeHomologyScore;
           valB = b.compositeHomologyScore;
+        } else if (selectedMetric === 'similarityPercent') {
+          valA = a.alignment.similarityPercent;
+          valB = b.alignment.similarityPercent;
         } else if (selectedMetric === 'identityPercent') {
           valA = a.alignment.identityPercent;
           valB = b.alignment.identityPercent;
@@ -161,7 +164,8 @@ export const HomologyComparisonMatrix: React.FC<HomologyComparisonMatrixProps> =
 
     const columns = [
       { key: 'compositeHomologyScore', label: 'Composite Score', unit: '%' },
-      { key: 'identityPercent', label: 'Sequence Identity', unit: '%' },
+      { key: 'similarityPercent', label: 'Similarity %', unit: '%' },
+      { key: 'identityPercent', label: 'Identity %', unit: '%' },
       { key: 'score', label: 'Bit Score', unit: '' },
       { key: 'structureSimilarityPercent', label: '2D Fold Match', unit: '%' },
       { key: 'gcDifference', label: '|ΔGC%| Shift', unit: '%' },
@@ -281,6 +285,13 @@ export const HomologyComparisonMatrix: React.FC<HomologyComparisonMatrixProps> =
 
         if (col.key === 'compositeHomologyScore') {
           rawVal = row.compositeHomologyScore;
+          displayVal = `${rawVal}%`;
+          cellColor = colorScalePrimary(rawVal);
+          textColor = palette === 'blues' || palette === 'magma' || palette === 'viridis'
+            ? rawVal > 55 ? '#ffffff' : '#0f172a'
+            : '#0f172a';
+        } else if (col.key === 'similarityPercent') {
+          rawVal = row.alignment.similarityPercent;
           displayVal = `${rawVal}%`;
           cellColor = colorScalePrimary(rawVal);
           textColor = palette === 'blues' || palette === 'magma' || palette === 'viridis'
@@ -724,6 +735,7 @@ export const HomologyComparisonMatrix: React.FC<HomologyComparisonMatrixProps> =
               className="w-full text-xs px-2.5 py-1.5 border border-slate-300 rounded bg-white font-medium focus:ring-1 focus:ring-amber-500"
             >
               <option value="compositeHomologyScore">Composite Homology Index</option>
+              <option value="similarityPercent">Sequence Similarity (%)</option>
               <option value="identityPercent">Sequence Identity (%)</option>
               <option value="score">Smith-Waterman Bit Score</option>
               <option value="structureSimilarityPercent">2D Structure Match (%)</option>

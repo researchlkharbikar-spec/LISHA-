@@ -4,7 +4,7 @@
  * LISHA Computational Interaction Screening Engine
  */
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   Dna,
   Play,
@@ -22,8 +22,24 @@ import {
   Check,
   Grid,
   Edit3,
+  Thermometer,
+  Flame,
+  Eye,
+  Sliders,
+  FileDown,
+  Compass,
 } from 'lucide-react';
 import { HomologyComparisonMatrix } from './HomologyComparisonMatrix';
+import { VisualSequenceViewer } from './VisualSequenceViewer';
+import { ThermophysicalCalculator } from './ThermophysicalCalculator';
+import { SecondaryStructureView } from './SecondaryStructureView';
+import { MotifDiscoveryViewer } from './MotifDiscoveryViewer';
+import { FastaExportModal } from './FastaExportModal';
+import {
+  validateLncRnaSequence,
+  sanitizeToRnaSequence,
+  type SequenceValidationResult,
+} from '../utils/sequenceValidator';
 import {
   cleanSequence,
   cleanDnaSequence,
@@ -55,12 +71,22 @@ interface ScreeningEngineProps {
   prefillLncRna?: { name: string; sequence: string } | null;
 }
 
+export type ScreeningModuleType =
+  | 'protein'
+  | 'mirna'
+  | 'dna'
+  | 'homology'
+  | 'visual-seq'
+  | 'thermodynamics'
+  | 'structure'
+  | 'motifs';
+
 export const ScreeningEngine: React.FC<ScreeningEngineProps> = ({
   onSaveAnalysis,
   onRequestGeminiInterpretation,
   prefillLncRna,
 }) => {
-  const [activeModule, setActiveModule] = useState<'protein' | 'mirna' | 'dna' | 'homology'>('protein');
+  const [activeModule, setActiveModule] = useState<ScreeningModuleType>('protein');
 
   // Input states
   const [lncRnaName, setLncRnaName] = useState(prefillLncRna?.name || 'ALEX1 (Oryza sativa)');
@@ -92,6 +118,12 @@ export const ScreeningEngine: React.FC<ScreeningEngineProps> = ({
   const [structureResult, setStructureResult] = useState<SecondaryStructureResult | null>(null);
   const [isRunning, setIsRunning] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [isFastaModalOpen, setIsFastaModalOpen] = useState(false);
+
+  // Reactive regex-based sequence validation
+  const validationResult: SequenceValidationResult = useMemo(() => {
+    return validateLncRnaSequence(lncRnaSeq);
+  }, [lncRnaSeq]);
 
   // Sync prefill if provided
   React.useEffect(() => {
@@ -101,37 +133,45 @@ export const ScreeningEngine: React.FC<ScreeningEngineProps> = ({
     }
   }, [prefillLncRna]);
 
-  // Run calculation
+  // Run calculation with validation guard
   const handleRunScreening = () => {
+    const val = validateLncRnaSequence(lncRnaSeq);
+    if (!val.isValid) {
+      return;
+    }
+    const cleanSeq = val.cleanedSequence;
+
     setIsRunning(true);
     setTimeout(() => {
       // 2D secondary structure for input
-      const struct = predictRnaSecondaryStructure(lncRnaSeq);
+      const struct = predictRnaSecondaryStructure(cleanSeq);
       setStructureResult(struct);
 
       if (activeModule === 'protein') {
-        const res = screenLncRnaProteinInteraction(lncRnaSeq, proteinSeq, proteinName);
+        const res = screenLncRnaProteinInteraction(cleanSeq, proteinSeq, proteinName);
         setProteinResult(res);
       } else if (activeModule === 'mirna') {
-        const res = screenLncRnaMiRnaInteraction(lncRnaSeq, mirnaSeq, mirnaName);
+        const res = screenLncRnaMiRnaInteraction(cleanSeq, mirnaSeq, mirnaName);
         setMirnaResults(res);
       } else if (activeModule === 'dna') {
-        const res = screenLncRnaDnaTriplex(lncRnaSeq, dnaSeq);
+        const res = screenLncRnaDnaTriplex(cleanSeq, dnaSeq);
         setTriplexResults(res);
       } else if (activeModule === 'homology') {
         const align =
           alignmentType === 'local'
-            ? smithWatermanAlign(lncRnaSeq, homologySubjectSeq)
-            : needlemanWunschAlign(lncRnaSeq, homologySubjectSeq);
+            ? smithWatermanAlign(cleanSeq, homologySubjectSeq)
+            : needlemanWunschAlign(cleanSeq, homologySubjectSeq);
         setAlignmentResult(align);
       }
       setIsRunning(false);
     }, 150);
   };
 
-  // Run on mount or module change if no result yet
+  // Run on mount or module change if valid
   React.useEffect(() => {
-    handleRunScreening();
+    if (validationResult.isValid) {
+      handleRunScreening();
+    }
   }, [activeModule]);
 
   // Pre-loaded preset examples
@@ -228,69 +268,133 @@ export const ScreeningEngine: React.FC<ScreeningEngineProps> = ({
         </div>
 
         {/* Module Selector Pill Bar */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 pt-4">
+        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2 pt-4">
           <button
             onClick={() => setActiveModule('protein')}
-            className={`p-3 rounded-lg border text-left transition-all ${
+            className={`p-2.5 rounded-lg border text-left transition-all cursor-pointer ${
               activeModule === 'protein'
                 ? 'bg-blue-50 border-blue-400 shadow-xs ring-1 ring-blue-300'
                 : 'bg-slate-50 border-slate-200 hover:bg-white'
             }`}
           >
             <div className="flex items-center justify-between mb-1">
-              <span className="text-xs font-bold uppercase tracking-wider text-blue-700">Module 1</span>
-              <Layers className="w-4 h-4 text-blue-600" />
+              <span className="text-[10px] font-bold uppercase tracking-wider text-blue-700">Module 1</span>
+              <Layers className="w-3.5 h-3.5 text-blue-600" />
             </div>
-            <div className="text-sm font-semibold text-slate-900">lncRNA-Protein</div>
-            <div className="text-[11px] text-slate-500">catRAPID & RBM propensity</div>
+            <div className="text-xs font-semibold text-slate-900 leading-tight">lncRNA-Protein</div>
+            <div className="text-[10px] text-slate-500 truncate">catRAPID & RBM</div>
           </button>
 
           <button
             onClick={() => setActiveModule('mirna')}
-            className={`p-3 rounded-lg border text-left transition-all ${
+            className={`p-2.5 rounded-lg border text-left transition-all cursor-pointer ${
               activeModule === 'mirna'
                 ? 'bg-emerald-50 border-emerald-400 shadow-xs ring-1 ring-emerald-300'
                 : 'bg-slate-50 border-slate-200 hover:bg-white'
             }`}
           >
             <div className="flex items-center justify-between mb-1">
-              <span className="text-xs font-bold uppercase tracking-wider text-emerald-700">Module 2</span>
-              <Activity className="w-4 h-4 text-emerald-600" />
+              <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-700">Module 2</span>
+              <Activity className="w-3.5 h-3.5 text-emerald-600" />
             </div>
-            <div className="text-sm font-semibold text-slate-900">lncRNA-miRNA</div>
-            <div className="text-[11px] text-slate-500">ceRNA Sponging & Seeds</div>
+            <div className="text-xs font-semibold text-slate-900 leading-tight">lncRNA-miRNA</div>
+            <div className="text-[10px] text-slate-500 truncate">ceRNA Sponging</div>
           </button>
 
           <button
             onClick={() => setActiveModule('dna')}
-            className={`p-3 rounded-lg border text-left transition-all ${
+            className={`p-2.5 rounded-lg border text-left transition-all cursor-pointer ${
               activeModule === 'dna'
                 ? 'bg-purple-50 border-purple-400 shadow-xs ring-1 ring-purple-300'
                 : 'bg-slate-50 border-slate-200 hover:bg-white'
             }`}
           >
             <div className="flex items-center justify-between mb-1">
-              <span className="text-xs font-bold uppercase tracking-wider text-purple-700">Module 3</span>
-              <Dna className="w-4 h-4 text-purple-600" />
+              <span className="text-[10px] font-bold uppercase tracking-wider text-purple-700">Module 3</span>
+              <Dna className="w-3.5 h-3.5 text-purple-600" />
             </div>
-            <div className="text-sm font-semibold text-slate-900">lncRNA-DNA Triplex</div>
-            <div className="text-[11px] text-slate-500">Hoogsteen Promoter TFO/TTS</div>
+            <div className="text-xs font-semibold text-slate-900 leading-tight">lncRNA-DNA</div>
+            <div className="text-[10px] text-slate-500 truncate">Hoogsteen Triplex</div>
           </button>
 
           <button
             onClick={() => setActiveModule('homology')}
-            className={`p-3 rounded-lg border text-left transition-all ${
+            className={`p-2.5 rounded-lg border text-left transition-all cursor-pointer ${
               activeModule === 'homology'
                 ? 'bg-amber-50 border-amber-400 shadow-xs ring-1 ring-amber-300'
                 : 'bg-slate-50 border-slate-200 hover:bg-white'
             }`}
           >
             <div className="flex items-center justify-between mb-1">
-              <span className="text-xs font-bold uppercase tracking-wider text-amber-700">Module 4</span>
-              <Grid className="w-4 h-4 text-amber-600" />
+              <span className="text-[10px] font-bold uppercase tracking-wider text-amber-700">Module 4</span>
+              <Grid className="w-3.5 h-3.5 text-amber-600" />
             </div>
-            <div className="text-sm font-semibold text-slate-900">Homology & D3 Matrix</div>
-            <div className="text-[11px] text-slate-500">Multi-template Matrix & Synteny</div>
+            <div className="text-xs font-semibold text-slate-900 leading-tight">Stress Homology</div>
+            <div className="text-[10px] text-slate-500 truncate">D3 Similarity Matrix</div>
+          </button>
+
+          <button
+            onClick={() => setActiveModule('visual-seq')}
+            className={`p-2.5 rounded-lg border text-left transition-all cursor-pointer ${
+              activeModule === 'visual-seq'
+                ? 'bg-cyan-50 border-cyan-400 shadow-xs ring-1 ring-cyan-300'
+                : 'bg-slate-50 border-slate-200 hover:bg-white'
+            }`}
+          >
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-cyan-700">Module 5</span>
+              <Eye className="w-3.5 h-3.5 text-cyan-600" />
+            </div>
+            <div className="text-xs font-semibold text-slate-900 leading-tight">Sequence & GC</div>
+            <div className="text-[10px] text-slate-500 truncate">Base-Pairing & GC%</div>
+          </button>
+
+          <button
+            onClick={() => setActiveModule('thermodynamics')}
+            className={`p-2.5 rounded-lg border text-left transition-all cursor-pointer ${
+              activeModule === 'thermodynamics'
+                ? 'bg-rose-50 border-rose-400 shadow-xs ring-1 ring-rose-300'
+                : 'bg-slate-50 border-slate-200 hover:bg-white'
+            }`}
+          >
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-rose-700">Module 6</span>
+              <Thermometer className="w-3.5 h-3.5 text-rose-600" />
+            </div>
+            <div className="text-xs font-semibold text-slate-900 leading-tight">Thermodynamics</div>
+            <div className="text-[10px] text-slate-500 truncate">Nearest-Neighbor Tm</div>
+          </button>
+
+          <button
+            onClick={() => setActiveModule('structure')}
+            className={`p-2.5 rounded-lg border text-left transition-all cursor-pointer ${
+              activeModule === 'structure'
+                ? 'bg-indigo-50 border-indigo-400 shadow-xs ring-1 ring-indigo-300'
+                : 'bg-slate-50 border-slate-200 hover:bg-white'
+            }`}
+          >
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-700">Module 7</span>
+              <Dna className="w-3.5 h-3.5 text-indigo-600" />
+            </div>
+            <div className="text-xs font-semibold text-slate-900 leading-tight">2D RNA Fold</div>
+            <div className="text-[10px] text-slate-500 truncate">CSS Dot-Bracket</div>
+          </button>
+
+          <button
+            onClick={() => setActiveModule('motifs')}
+            className={`p-2.5 rounded-lg border text-left transition-all cursor-pointer ${
+              activeModule === 'motifs'
+                ? 'bg-violet-50 border-violet-400 shadow-xs ring-1 ring-violet-300'
+                : 'bg-slate-50 border-slate-200 hover:bg-white'
+            }`}
+          >
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-violet-700">Module 8</span>
+              <Compass className="w-3.5 h-3.5 text-violet-600" />
+            </div>
+            <div className="text-xs font-semibold text-slate-900 leading-tight">Motif Discovery</div>
+            <div className="text-[10px] text-slate-500 truncate">Regulatory Elements</div>
           </button>
         </div>
       </div>
@@ -326,6 +430,19 @@ export const ScreeningEngine: React.FC<ScreeningEngineProps> = ({
                 {cleanLncRna.length} nt • GC: {gcPct}%
               </span>
               <button
+                onClick={() => setIsFastaModalOpen(true)}
+                disabled={!validationResult.isValid}
+                className={`px-2.5 py-1 rounded text-xs font-semibold flex items-center gap-1 transition-colors ${
+                  !validationResult.isValid
+                    ? 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed'
+                    : 'bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 text-indigo-700 cursor-pointer'
+                }`}
+                title={!validationResult.isValid ? 'Fix sequence validation errors to export' : 'Export validated sequence and biophysical properties in FASTA format'}
+              >
+                <FileDown className="w-3 h-3 text-indigo-600" />
+                <span>Export FASTA</span>
+              </button>
+              <button
                 onClick={() => setIsQueryEditorOpen(!isQueryEditorOpen)}
                 className="px-2.5 py-1 bg-slate-100 hover:bg-slate-200 rounded text-slate-700 font-medium text-xs flex items-center gap-1 transition-colors cursor-pointer"
               >
@@ -360,14 +477,28 @@ export const ScreeningEngine: React.FC<ScreeningEngineProps> = ({
                     className="w-full text-xs font-mono px-3 py-2 border border-slate-300 rounded bg-slate-50 focus:bg-white"
                   />
                 </div>
-                <div className="md:col-span-2">
+                <div className="md:col-span-2 space-y-2">
                   <label className="block text-xs font-medium text-slate-600 mb-1">FASTA / Nucleotide Sequence</label>
                   <textarea
                     rows={3}
                     value={lncRnaSeq}
                     onChange={(e) => setLncRnaSeq(e.target.value)}
-                    className="w-full text-xs font-mono px-3 py-2 border border-slate-300 rounded bg-slate-50 focus:bg-white uppercase"
+                    className={`w-full text-xs font-mono px-3 py-2 border rounded bg-slate-50 focus:bg-white uppercase ${
+                      !validationResult.isValid ? 'border-rose-400 bg-rose-50/40' : 'border-slate-300'
+                    }`}
                   />
+                  {!validationResult.isValid && (
+                    <div className="flex items-center justify-between text-xs text-rose-800 bg-rose-50 border border-rose-300 p-2 rounded">
+                      <span>Invalid characters detected in sequence ({validationResult.totalInvalidCount} invalid chars).</span>
+                      <button
+                        type="button"
+                        onClick={() => setLncRnaSeq(sanitizeToRnaSequence(lncRnaSeq))}
+                        className="px-2 py-0.5 bg-rose-600 text-white rounded text-[11px] font-medium"
+                      >
+                        Sanitize
+                      </button>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -421,21 +552,101 @@ export const ScreeningEngine: React.FC<ScreeningEngineProps> = ({
                 <label className="text-xs font-medium text-slate-600">
                   Nucleotide Sequence (5' &rarr; 3')
                 </label>
-                <button
-                  onClick={() => handleCopySequence(cleanLncRna)}
-                  className="text-[11px] text-blue-600 hover:text-blue-700 flex items-center gap-1"
-                >
-                  {copied ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
-                  <span>{copied ? 'Copied' : 'Copy'}</span>
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setIsFastaModalOpen(true)}
+                    disabled={!validationResult.isValid}
+                    className={`text-[11px] font-semibold flex items-center gap-1 transition-colors ${
+                      !validationResult.isValid
+                        ? 'text-slate-400 cursor-not-allowed'
+                        : 'text-indigo-600 hover:text-indigo-800 cursor-pointer'
+                    }`}
+                    title={!validationResult.isValid ? 'Fix sequence validation errors to export' : 'Export validated FASTA with biophysical properties'}
+                  >
+                    <FileDown className="w-3.5 h-3.5 text-indigo-600" />
+                    <span>Export FASTA</span>
+                  </button>
+                  <span className="text-slate-300">|</span>
+                  <button
+                    onClick={() => handleCopySequence(cleanLncRna)}
+                    className="text-[11px] text-blue-600 hover:text-blue-700 flex items-center gap-1 cursor-pointer"
+                  >
+                    {copied ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
+                    <span>{copied ? 'Copied' : 'Copy'}</span>
+                  </button>
+                </div>
               </div>
               <textarea
                 rows={5}
                 value={lncRnaSeq}
                 onChange={(e) => setLncRnaSeq(e.target.value)}
-                className="w-full text-xs font-mono px-3 py-2 border border-slate-300 rounded-md bg-slate-50 focus:bg-white focus:outline-hidden focus:ring-1 focus:ring-blue-500 leading-relaxed uppercase"
+                className={`w-full text-xs font-mono px-3 py-2 border rounded-md focus:bg-white focus:outline-hidden focus:ring-1 leading-relaxed uppercase transition-colors ${
+                  !validationResult.isValid
+                    ? 'border-rose-400 bg-rose-50/40 focus:ring-rose-500'
+                    : 'border-slate-300 bg-slate-50 focus:ring-blue-500'
+                }`}
                 placeholder="Enter RNA sequence (A, C, G, U/T)..."
               />
+
+              {/* Regex Sequence Validation Diagnostics */}
+              <div className="mt-2">
+                {validationResult.isValid ? (
+                  <div className="flex flex-wrap items-center justify-between gap-2 p-2.5 bg-emerald-50/80 border border-emerald-200 rounded-lg text-xs text-emerald-900">
+                    <div className="flex items-center gap-1.5 font-medium">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                      <span>Valid Sequence (A, C, G, T, U)</span>
+                    </div>
+                    <div className="flex items-center gap-2 font-mono text-[11px] text-emerald-800">
+                      <span>{validationResult.length} nt</span>
+                      <span>•</span>
+                      <span>GC: {validationResult.composition.gcPercent}%</span>
+                      <span>•</span>
+                      <span>AU: {validationResult.composition.auPercent}%</span>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="p-3 bg-rose-50 border border-rose-300 rounded-lg text-xs space-y-2 text-rose-950">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-start gap-1.5">
+                        <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                        <div>
+                          <div className="font-bold text-rose-900">Sequence Validation Error</div>
+                          <div className="text-[11px] text-rose-800 mt-0.5">
+                            lncRNA sequences must strictly contain only valid nucleotide bases (A, C, G, T, U).
+                          </div>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setLncRnaSeq(sanitizeToRnaSequence(lncRnaSeq))}
+                        className="px-2.5 py-1 bg-rose-600 hover:bg-rose-700 text-white font-medium text-[11px] rounded flex items-center gap-1 shrink-0 transition-colors shadow-2xs cursor-pointer"
+                      >
+                        <Sparkles className="w-3 h-3" />
+                        <span>Sanitize & Auto-Fix</span>
+                      </button>
+                    </div>
+
+                    {/* Invalid Character Badges */}
+                    {validationResult.invalidChars.length > 0 && (
+                      <div className="bg-white/90 border border-rose-200 rounded p-2 text-[11px] font-mono text-rose-900 space-y-1">
+                        <div className="font-semibold text-rose-800">
+                          Detected {validationResult.totalInvalidCount} invalid character(s):
+                        </div>
+                        <div className="flex flex-wrap gap-1.5">
+                          {validationResult.invalidChars.map((diag, i) => (
+                            <span
+                              key={i}
+                              className="px-1.5 py-0.5 bg-rose-100 border border-rose-300 rounded text-rose-800 font-bold"
+                            >
+                              '{diag.char}' ({diag.count}x at pos {diag.positions.join(', ')})
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
 
             {/* Target input according to active module */}
@@ -565,17 +776,56 @@ export const ScreeningEngine: React.FC<ScreeningEngineProps> = ({
                   </div>
                 </div>
               )}
+
+              {(activeModule === 'visual-seq' || activeModule === 'thermodynamics' || activeModule === 'structure' || activeModule === 'motifs') && (
+                <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg text-xs space-y-2 text-slate-700">
+                  <div className="font-semibold text-slate-900 flex items-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5 text-blue-600" />
+                    <span>Biophysical & Motif Analysis Mode</span>
+                  </div>
+                  <p className="text-[11px] text-slate-500 leading-relaxed">
+                    Directly analyzing the query sequence for conserved regulatory motifs, Watson-Crick GC architecture, nearest-neighbor melting temperature (Tm), and secondary structure dot-bracket folds.
+                  </p>
+                </div>
+              )}
             </div>
 
             {/* Run Button */}
             <div className="pt-2 flex items-center gap-3">
               <button
                 onClick={handleRunScreening}
-                disabled={isRunning}
-                className="flex-1 py-2.5 px-4 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium text-xs flex items-center justify-center gap-2 shadow-xs transition-colors"
+                disabled={isRunning || !validationResult.isValid}
+                className={`flex-1 py-2.5 px-4 rounded-lg font-medium text-xs flex items-center justify-center gap-2 shadow-xs transition-colors ${
+                  !validationResult.isValid
+                    ? 'bg-slate-300 text-slate-500 cursor-not-allowed border border-slate-300'
+                    : isRunning
+                    ? 'bg-blue-400 text-white cursor-wait'
+                    : 'bg-blue-600 hover:bg-blue-700 text-white cursor-pointer'
+                }`}
               >
                 <Play className="w-3.5 h-3.5 fill-current" />
-                <span>{isRunning ? 'Calculating...' : 'Run Screening Assessment'}</span>
+                <span>
+                  {!validationResult.isValid
+                    ? 'Cannot Run: Fix Invalid Characters'
+                    : isRunning
+                    ? 'Calculating...'
+                    : 'Run Screening Assessment'}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setIsFastaModalOpen(true)}
+                disabled={!validationResult.isValid}
+                className={`py-2.5 px-3 rounded-lg border text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-2xs ${
+                  !validationResult.isValid
+                    ? 'border-slate-200 text-slate-400 bg-slate-50 cursor-not-allowed'
+                    : 'border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100 hover:border-indigo-300 cursor-pointer'
+                }`}
+                title={!validationResult.isValid ? 'Fix sequence validation errors to export' : 'Export validated lncRNA sequence and computed biophysical properties in FASTA format'}
+              >
+                <FileDown className="w-3.5 h-3.5 text-indigo-600" />
+                <span className="hidden sm:inline">Export</span> FASTA
               </button>
 
               <button
@@ -583,7 +833,7 @@ export const ScreeningEngine: React.FC<ScreeningEngineProps> = ({
                   setLncRnaSeq('');
                   setProteinSeq('');
                 }}
-                className="p-2.5 rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-50 transition-colors"
+                className="p-2.5 rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-50 transition-colors cursor-pointer"
                 title="Reset sequences"
               >
                 <RotateCcw className="w-4 h-4" />
@@ -1090,9 +1340,56 @@ export const ScreeningEngine: React.FC<ScreeningEngineProps> = ({
               )}
             </div>
           )}
+
+          {/* Module 5: Visual Nucleotide Sequence Viewer */}
+          {activeModule === 'visual-seq' && (
+            <VisualSequenceViewer
+              sequence={validationResult.cleanedSequence || lncRnaSeq}
+              name={lncRnaName}
+              structureResult={structureResult}
+              onExportFasta={() => setIsFastaModalOpen(true)}
+            />
+          )}
+
+          {/* Module 6: Thermophysical Property Calculator */}
+          {activeModule === 'thermodynamics' && (
+            <ThermophysicalCalculator
+              sequence={validationResult.cleanedSequence || lncRnaSeq}
+              name={lncRnaName}
+              onExportFasta={() => setIsFastaModalOpen(true)}
+            />
+          )}
+
+          {/* Module 7: Secondary Structure 2D Fold & Dot-Bracket */}
+          {activeModule === 'structure' && (
+            <SecondaryStructureView
+              sequence={validationResult.cleanedSequence || lncRnaSeq}
+              name={lncRnaName}
+              structureResult={structureResult}
+              onExportFasta={() => setIsFastaModalOpen(true)}
+            />
+          )}
+
+          {/* Module 8: Conserved Regulatory Motif Discovery */}
+          {activeModule === 'motifs' && (
+            <MotifDiscoveryViewer
+              sequence={validationResult.cleanedSequence || lncRnaSeq}
+              name={lncRnaName}
+              onExportFasta={() => setIsFastaModalOpen(true)}
+            />
+          )}
         </div>
       </div>
     )}
+
+    {/* FASTA Sequence & Biophysical Export Modal */}
+    <FastaExportModal
+      isOpen={isFastaModalOpen}
+      onClose={() => setIsFastaModalOpen(false)}
+      sequenceName={lncRnaName}
+      sequence={validationResult.cleanedSequence || lncRnaSeq}
+      structureResult={structureResult || undefined}
+    />
   </div>
 );
 };
