@@ -24,6 +24,8 @@ import {
   predictRnaSecondaryStructure,
   type SecondaryStructureResult,
 } from '../utils/bioCalculations';
+import { StemLoopWidget } from './StemLoopWidget';
+import { SecondaryStructureEnergyPlot } from './SecondaryStructureEnergyPlot';
 
 interface SecondaryStructureViewProps {
   sequence: string;
@@ -38,7 +40,9 @@ export const SecondaryStructureView: React.FC<SecondaryStructureViewProps> = ({
   structureResult: externalStructure,
   onExportFasta,
 }) => {
-  const [activeSubView, setActiveSubView] = useState<'css-diagram' | 'arc-diagram' | 'stem-list'>('css-diagram');
+  const [activeSubView, setActiveSubView] = useState<
+    'css-diagram' | 'energy-plot' | 'stem-loops' | 'arc-diagram' | 'stem-list'
+  >('css-diagram');
   const [hoveredBaseIndex, setHoveredBaseIndex] = useState<number | null>(null);
   const [copied, setCopied] = useState<boolean>(false);
 
@@ -161,6 +165,34 @@ export const SecondaryStructureView: React.FC<SecondaryStructureViewProps> = ({
               }`}
             >
               CSS Dot-Bracket Track
+            </button>
+            <button
+              onClick={() => setActiveSubView('energy-plot')}
+              className={`px-2.5 py-1 rounded-md transition-all cursor-pointer flex items-center gap-1.5 ${
+                activeSubView === 'energy-plot'
+                  ? 'bg-white text-teal-800 font-bold shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <Activity className="w-3 h-3 text-teal-600" />
+              <span>Energy Stability Plot</span>
+              <span className="px-1.5 py-0.2 bg-teal-100 text-teal-800 rounded text-[9px] font-extrabold uppercase">
+                Recharts
+              </span>
+            </button>
+            <button
+              onClick={() => setActiveSubView('stem-loops')}
+              className={`px-2.5 py-1 rounded-md transition-all cursor-pointer flex items-center gap-1.5 ${
+                activeSubView === 'stem-loops'
+                  ? 'bg-white text-indigo-700 font-bold shadow-xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <Sparkles className="w-3 h-3 text-indigo-500" />
+              <span>Stem-Loop Fold-Energy Widget</span>
+              <span className="px-1.5 py-0.2 bg-indigo-100 text-indigo-800 rounded text-[9px] font-extrabold uppercase">
+                Predictor
+              </span>
             </button>
             <button
               onClick={() => setActiveSubView('arc-diagram')}
@@ -536,6 +568,45 @@ export const SecondaryStructureView: React.FC<SecondaryStructureViewProps> = ({
               </tbody>
             </table>
           </div>
+        </div>
+      )}
+
+      {/* VIEW 4: Stem-Loop Fold-Energy Predictor & Ladder Widget */}
+      {activeSubView === 'stem-loops' && (
+        <StemLoopWidget
+          sequence={cleanSeq}
+          sequenceName={name}
+        />
+      )}
+
+      {/* VIEW 5: Recharts Secondary Structure Energy Stability Plot */}
+      {activeSubView === 'energy-plot' && (
+        <SecondaryStructureEnergyPlot
+          sequence={cleanSeq}
+          name={name}
+        />
+      )}
+
+      {/* In CSS diagram view, embed Energy Stability Plot and Stem-Loop Widget */}
+      {activeSubView === 'css-diagram' && (
+        <div className="space-y-6 pt-4 border-t border-slate-100">
+          <SecondaryStructureEnergyPlot
+            sequence={cleanSeq}
+            name={name}
+          />
+          <StemLoopWidget
+            sequence={cleanSeq}
+            sequenceName={name}
+          />
+        </div>
+      )}
+
+      {(activeSubView === 'arc-diagram' || activeSubView === 'stem-list') && (
+        <div className="pt-4 border-t border-slate-100">
+          <StemLoopWidget
+            sequence={cleanSeq}
+            sequenceName={name}
+          />
         </div>
       )}
     </div>

@@ -28,6 +28,8 @@ import {
   Sliders,
   FileDown,
   Compass,
+  ListFilter,
+  AlignLeft,
 } from 'lucide-react';
 import { HomologyComparisonMatrix } from './HomologyComparisonMatrix';
 import { VisualSequenceViewer } from './VisualSequenceViewer';
@@ -35,6 +37,8 @@ import { ThermophysicalCalculator } from './ThermophysicalCalculator';
 import { SecondaryStructureView } from './SecondaryStructureView';
 import { MotifDiscoveryViewer } from './MotifDiscoveryViewer';
 import { FastaExportModal } from './FastaExportModal';
+import { BatchScreeningView } from './BatchScreeningView';
+import { MultiSequenceAlignmentView } from './MultiSequenceAlignmentView';
 import {
   validateLncRnaSequence,
   sanitizeToRnaSequence,
@@ -71,6 +75,8 @@ interface ScreeningEngineProps {
   prefillLncRna?: { name: string; sequence: string } | null;
 }
 
+export type EngineMode = 'single' | 'batch' | 'msa';
+
 export type ScreeningModuleType =
   | 'protein'
   | 'mirna'
@@ -86,6 +92,7 @@ export const ScreeningEngine: React.FC<ScreeningEngineProps> = ({
   onRequestGeminiInterpretation,
   prefillLncRna,
 }) => {
+  const [engineMode, setEngineMode] = useState<EngineMode>('single');
   const [activeModule, setActiveModule] = useState<ScreeningModuleType>('protein');
 
   // Input states
@@ -220,8 +227,78 @@ export const ScreeningEngine: React.FC<ScreeningEngineProps> = ({
 
   return (
     <div className="space-y-6">
-      {/* Top Banner / Attribution & Pre-load Quick Chips */}
-      <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-xs">
+      {/* Primary Engine Mode Switcher Bar */}
+      <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-2.5 rounded-xl border border-slate-200 shadow-2xs">
+        <div className="flex flex-wrap items-center gap-1.5 p-1 bg-slate-100 rounded-lg">
+          <button
+            onClick={() => setEngineMode('single')}
+            className={`px-3.5 py-1.5 rounded-md text-xs font-bold flex items-center gap-2 transition-all cursor-pointer ${
+              engineMode === 'single'
+                ? 'bg-white text-blue-800 shadow-xs'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <Layers className="w-3.5 h-3.5 text-blue-600" />
+            <span>Single Sequence Analysis (8 Modules)</span>
+          </button>
+
+          <button
+            onClick={() => setEngineMode('batch')}
+            className={`px-3.5 py-1.5 rounded-md text-xs font-bold flex items-center gap-2 transition-all cursor-pointer ${
+              engineMode === 'batch'
+                ? 'bg-white text-emerald-800 shadow-xs'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <ListFilter className="w-3.5 h-3.5 text-emerald-600" />
+            <span>Batch Processing Engine</span>
+            <span className="px-1.5 py-0.2 bg-emerald-100 text-emerald-800 rounded text-[10px] font-extrabold uppercase">
+              Auto
+            </span>
+          </button>
+
+          <button
+            onClick={() => setEngineMode('msa')}
+            className={`px-3.5 py-1.5 rounded-md text-xs font-bold flex items-center gap-2 transition-all cursor-pointer ${
+              engineMode === 'msa'
+                ? 'bg-white text-indigo-800 shadow-xs'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <AlignLeft className="w-3.5 h-3.5 text-indigo-600" />
+            <span>Multi-Sequence Alignment (MSA)</span>
+            <span className="px-1.5 py-0.2 bg-indigo-100 text-indigo-800 rounded text-[10px] font-extrabold uppercase">
+              Clustal
+            </span>
+          </button>
+        </div>
+
+        <div className="text-[11px] font-mono text-slate-500 hidden sm:flex items-center gap-2 pr-2">
+          <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+          <span>ICAR-NIBSM Computational Core Active</span>
+        </div>
+      </div>
+
+      {/* Mode 2: Batch Screening Engine */}
+      {engineMode === 'batch' && (
+        <BatchScreeningView
+          onSelectSequenceForDetailedScreening={(seq, name) => {
+            setLncRnaSeq(seq);
+            setLncRnaName(name);
+            setEngineMode('single');
+          }}
+          onRequestGeminiInterpretation={onRequestGeminiInterpretation}
+        />
+      )}
+
+      {/* Mode 3: Multi-Sequence Alignment */}
+      {engineMode === 'msa' && <MultiSequenceAlignmentView />}
+
+      {/* Mode 1: Single Sequence Analysis */}
+      {engineMode === 'single' && (
+        <>
+          {/* Top Banner / Attribution & Pre-load Quick Chips */}
+          <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-xs">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-slate-100">
           <div>
             <div className="flex items-center gap-2">
@@ -264,11 +341,18 @@ export const ScreeningEngine: React.FC<ScreeningEngineProps> = ({
             >
               lncRNA16397 (Tomato Late Blight)
             </button>
+            <button
+              onClick={() => setEngineMode('batch')}
+              className="px-3 py-1 text-xs font-bold rounded-full bg-emerald-600 hover:bg-emerald-700 text-white flex items-center gap-1.5 transition-colors shadow-2xs ml-auto cursor-pointer"
+            >
+              <ListFilter className="w-3.5 h-3.5" />
+              <span>Batch Screening Mode</span>
+            </button>
           </div>
         </div>
 
         {/* Module Selector Pill Bar */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2 pt-4">
+        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-10 gap-2 pt-4">
           <button
             onClick={() => setActiveModule('protein')}
             className={`p-2.5 rounded-lg border text-left transition-all cursor-pointer ${
@@ -377,8 +461,8 @@ export const ScreeningEngine: React.FC<ScreeningEngineProps> = ({
               <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-700">Module 7</span>
               <Dna className="w-3.5 h-3.5 text-indigo-600" />
             </div>
-            <div className="text-xs font-semibold text-slate-900 leading-tight">2D RNA Fold</div>
-            <div className="text-[10px] text-slate-500 truncate">CSS Dot-Bracket</div>
+            <div className="text-xs font-semibold text-slate-900 leading-tight">2D Fold & Energy</div>
+            <div className="text-[10px] text-indigo-700 font-semibold truncate">Recharts Stability Plot</div>
           </button>
 
           <button
@@ -395,6 +479,30 @@ export const ScreeningEngine: React.FC<ScreeningEngineProps> = ({
             </div>
             <div className="text-xs font-semibold text-slate-900 leading-tight">Motif Discovery</div>
             <div className="text-[10px] text-slate-500 truncate">Regulatory Elements</div>
+          </button>
+
+          <button
+            onClick={() => setEngineMode('batch')}
+            className="p-2.5 rounded-lg border text-left transition-all cursor-pointer bg-emerald-50/70 border-emerald-300 hover:bg-emerald-100 hover:border-emerald-400 group"
+          >
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-800">Module 9</span>
+              <ListFilter className="w-3.5 h-3.5 text-emerald-600 group-hover:scale-110 transition-transform" />
+            </div>
+            <div className="text-xs font-semibold text-slate-900 leading-tight">Batch Mode</div>
+            <div className="text-[10px] text-emerald-700 font-semibold truncate">Multi-FASTA Auto</div>
+          </button>
+
+          <button
+            onClick={() => setEngineMode('msa')}
+            className="p-2.5 rounded-lg border text-left transition-all cursor-pointer bg-indigo-50/70 border-indigo-300 hover:bg-indigo-100 hover:border-indigo-400 group"
+          >
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-800">Module 10</span>
+              <AlignLeft className="w-3.5 h-3.5 text-indigo-600 group-hover:scale-110 transition-transform" />
+            </div>
+            <div className="text-xs font-semibold text-slate-900 leading-tight">Multi-Seq MSA</div>
+            <div className="text-[10px] text-indigo-700 font-semibold truncate">Clustal Block View</div>
           </button>
         </div>
       </div>
@@ -1381,6 +1489,8 @@ export const ScreeningEngine: React.FC<ScreeningEngineProps> = ({
         </div>
       </div>
     )}
+  </>
+)}
 
     {/* FASTA Sequence & Biophysical Export Modal */}
     <FastaExportModal

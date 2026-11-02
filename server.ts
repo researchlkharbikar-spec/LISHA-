@@ -5,7 +5,8 @@
  * Express + Vite middlewares + Gemini API + Science APIs
  */
 
-import express, { Request, Response } from 'express';
+import express from 'express';
+import type { Request, Response } from 'express';
 import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';

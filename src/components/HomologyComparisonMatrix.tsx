@@ -15,6 +15,7 @@ import {
   type DotPlotMatrixData,
 } from '../utils/bioCalculations';
 import { CURATED_LNCRNAS, type CuratedLncRNA } from '../data/curatedLncRNAs';
+import { HomologyHeatmapSequenceMatrix } from './HomologyHeatmapSequenceMatrix';
 import {
   BarChart2,
   Grid,
@@ -56,7 +57,7 @@ export const HomologyComparisonMatrix: React.FC<HomologyComparisonMatrixProps> =
   const [speciesFilter, setSpeciesFilter] = useState<string>('All');
   const [pathogenFilter, setPathogenFilter] = useState<string>('All');
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>(CURATED_LNCRNAS[0].id);
-  const [viewMode, setViewMode] = useState<'heatmap' | 'dotplot'>('heatmap');
+  const [viewMode, setViewMode] = useState<'sequence-heatmap' | 'heatmap' | 'dotplot'>('sequence-heatmap');
   const [palette, setPalette] = useState<PaletteType>('viridis');
   const [dotPlotWindow, setDotPlotWindow] = useState<number>(7);
   const [dotPlotStringency, setDotPlotStringency] = useState<number>(5);
@@ -658,19 +659,30 @@ export const HomologyComparisonMatrix: React.FC<HomologyComparisonMatrixProps> =
           {/* Heatmap vs Dot-plot Mode */}
           <div className="flex items-center border border-slate-200 rounded-lg overflow-hidden text-xs bg-slate-50">
             <button
-              onClick={() => setViewMode('heatmap')}
-              className={`px-3 py-1.5 font-medium flex items-center gap-1.5 transition-colors ${
-                viewMode === 'heatmap'
+              onClick={() => setViewMode('sequence-heatmap')}
+              className={`px-3 py-1.5 font-medium flex items-center gap-1.5 transition-colors cursor-pointer ${
+                viewMode === 'sequence-heatmap'
                   ? 'bg-amber-600 text-white font-bold'
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
               <Grid className="w-3.5 h-3.5" />
-              <span>Heatmap Matrix</span>
+              <span>Sequence Heatmap (D3)</span>
+            </button>
+            <button
+              onClick={() => setViewMode('heatmap')}
+              className={`px-3 py-1.5 font-medium flex items-center gap-1.5 transition-colors cursor-pointer ${
+                viewMode === 'heatmap'
+                  ? 'bg-amber-600 text-white font-bold'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <Layers className="w-3.5 h-3.5" />
+              <span>Metric Table</span>
             </button>
             <button
               onClick={() => setViewMode('dotplot')}
-              className={`px-3 py-1.5 font-medium flex items-center gap-1.5 transition-colors ${
+              className={`px-3 py-1.5 font-medium flex items-center gap-1.5 transition-colors cursor-pointer ${
                 viewMode === 'dotplot'
                   ? 'bg-amber-600 text-white font-bold'
                   : 'text-slate-600 hover:text-slate-900'
@@ -722,8 +734,16 @@ export const HomologyComparisonMatrix: React.FC<HomologyComparisonMatrixProps> =
         </div>
       </div>
 
-      {/* Filter and Metric Toolbar */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs bg-slate-50/70 p-3 rounded-lg border border-slate-200">
+      {viewMode === 'sequence-heatmap' ? (
+        <HomologyHeatmapSequenceMatrix
+          querySequence={querySequence}
+          queryName={queryName}
+          onSelectHomologForDetailedScreening={onSelectTemplateForAlignment}
+        />
+      ) : (
+        <>
+          {/* Filter and Metric Toolbar */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs bg-slate-50/70 p-3 rounded-lg border border-slate-200">
         <div>
           <label className="block text-slate-600 font-semibold mb-1">
             Sort by Metric:
@@ -943,6 +963,8 @@ export const HomologyComparisonMatrix: React.FC<HomologyComparisonMatrixProps> =
           </button>
         </div>
       </div>
-    </div>
+    </>
+  )}
+</div>
   );
 };
