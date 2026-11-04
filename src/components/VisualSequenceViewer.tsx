@@ -18,6 +18,7 @@ import {
   Sliders,
   Layers,
   FileDown,
+  Dna,
 } from 'lucide-react';
 import { predictRnaSecondaryStructure, type SecondaryStructureResult } from '../utils/bioCalculations';
 import { D3SequenceMotifViewer } from './D3SequenceMotifViewer';
@@ -28,6 +29,7 @@ interface VisualSequenceViewerProps {
   name?: string;
   structureResult?: SecondaryStructureResult | null;
   onExportFasta?: () => void;
+  onNavigateToOrfMap?: () => void;
 }
 
 export const VisualSequenceViewer: React.FC<VisualSequenceViewerProps> = ({
@@ -35,6 +37,7 @@ export const VisualSequenceViewer: React.FC<VisualSequenceViewerProps> = ({
   name = 'Query lncRNA',
   structureResult: externalStructure,
   onExportFasta,
+  onNavigateToOrfMap,
 }) => {
   const [highlightMode, setHighlightMode] = useState<'d3' | 'gc' | 'basepairs' | 'nucleotide'>('d3');
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
@@ -213,6 +216,17 @@ export const VisualSequenceViewer: React.FC<VisualSequenceViewerProps> = ({
             >
               <FileDown className="w-3.5 h-3.5 text-blue-600" />
               <span>Export FASTA</span>
+            </button>
+          )}
+
+          {onNavigateToOrfMap && (
+            <button
+              onClick={onNavigateToOrfMap}
+              className="px-2.5 py-1 rounded-md border border-indigo-200 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+              title="Inspect Open Reading Frames across frames +1, +2, +3 on color-coded map"
+            >
+              <Dna className="w-3.5 h-3.5 text-indigo-600" />
+              <span>ORF Map</span>
             </button>
           )}
 

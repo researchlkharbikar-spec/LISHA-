@@ -30,15 +30,26 @@ import {
   Compass,
   ListFilter,
   AlignLeft,
+  ArrowLeftRight,
+  Share2,
+  ExternalLink,
 } from 'lucide-react';
 import { HomologyComparisonMatrix } from './HomologyComparisonMatrix';
 import { VisualSequenceViewer } from './VisualSequenceViewer';
 import { ThermophysicalCalculator } from './ThermophysicalCalculator';
 import { SecondaryStructureView } from './SecondaryStructureView';
 import { MotifDiscoveryViewer } from './MotifDiscoveryViewer';
+import { PlantMotifScanner } from './PlantMotifScanner';
+import { TargetConnectivityGraph } from './TargetConnectivityGraph';
 import { FastaExportModal } from './FastaExportModal';
+import { PdfExportModal } from './PdfExportModal';
+import { ReverseComplementModal } from './ReverseComplementModal';
 import { BatchScreeningView } from './BatchScreeningView';
 import { MultiSequenceAlignmentView } from './MultiSequenceAlignmentView';
+import { PairwiseAlignmentTool } from './PairwiseAlignmentTool';
+import { OrfMapViewer } from './OrfMapViewer';
+import { getReverseComplement } from '../utils/reverseComplement';
+import { submitNcbiBlast, buildNcbiBlastUrl } from '../utils/ncbiBlast';
 import {
   validateLncRnaSequence,
   sanitizeToRnaSequence,
@@ -60,6 +71,9 @@ import {
   type AlignmentResult,
 } from '../utils/bioCalculations';
 import { CURATED_LNCRNAS } from '../data/curatedLncRNAs';
+import { generateFormalPdfReport } from '../utils/pdfReportGenerator';
+import { discoverRegulatoryMotifs } from '../utils/motifDiscovery';
+import { calculateNearestNeighborTm } from '../utils/thermodynamics';
 
 interface ScreeningEngineProps {
   onSaveAnalysis?: (record: {
@@ -75,7 +89,7 @@ interface ScreeningEngineProps {
   prefillLncRna?: { name: string; sequence: string } | null;
 }
 
-export type EngineMode = 'single' | 'batch' | 'msa';
+export type EngineMode = 'single' | 'pairwise' | 'batch' | 'msa';
 
 export type ScreeningModuleType =
   | 'protein'
@@ -85,7 +99,9 @@ export type ScreeningModuleType =
   | 'visual-seq'
   | 'thermodynamics'
   | 'structure'
-  | 'motifs';
+  | 'motifs'
+  | 'network'
+  | 'orf-map';
 
 export const ScreeningEngine: React.FC<ScreeningEngineProps> = ({
   onSaveAnalysis,
@@ -126,11 +142,141 @@ export const ScreeningEngine: React.FC<ScreeningEngineProps> = ({
   const [isRunning, setIsRunning] = useState(false);
   const [copied, setCopied] = useState(false);
   const [isFastaModalOpen, setIsFastaModalOpen] = useState(false);
+  const [isPdfModalOpen, setIsPdfModalOpen] = useState(false);
+  const [isRevCompModalOpen, setIsRevCompModalOpen] = useState(false);
+  const [previousSequenceState, setPreviousSequenceState] = useState<{
+    name: string;
+    sequence: string;
+  } | null>(null);
+  const [revCompNotification, setRevCompNotification] = useState<{
+    show: boolean;
+    message: string;
+  } | null>(null);
+  const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
+  const [pdfDownloadSuccess, setPdfDownloadSuccess] = useState(false);
 
   // Reactive regex-based sequence validation
   const validationResult: SequenceValidationResult = useMemo(() => {
     return validateLncRnaSequence(lncRnaSeq);
   }, [lncRnaSeq]);
+
+  // Memoized PDF report payload capturing full screening session parameters
+  const pdfReportPayload = useMemo(() => {
+    const cleanSeq = validationResult.cleanedSequence || lncRnaSeq;
+    const motifs = discoverRegulatoryMotifs(cleanSeq);
+    const thermo = calculateNearestNeighborTm(cleanSeq, 0.05, 0.002, 0.0000001, false);
+    const struct = structureResult || predictRnaSecondaryStructure(cleanSeq);
+
+    return {
+      lncRnaName: lncRnaName || 'Target Plant lncRNA',
+      sequence: cleanSeq,
+      length: cleanSeq.length,
+      gcPercent: validationResult.composition.gcPercent,
+      targetProteinName: proteinName,
+      targetDnaName: dnaTargetName,
+      proteinResult,
+      mirnaResults,
+      triplexResults,
+      alignmentResult,
+      homologySubjectName,
+      structureResult: struct,
+      thermoResult: thermo,
+      motifResult: motifs,
+      investigatorNotes: `Screening session executed across LISHA computational modules. Lead Investigator: Prof. Lalit Laxman Kharbikar, Principal Scientist, ICAR-NIBSM, Raipur, India.`,
+    };
+  }, [
+    lncRnaName,
+    lncRnaSeq,
+    validationResult,
+    proteinName,
+    dnaTargetName,
+    proteinResult,
+    mirnaResults,
+    triplexResults,
+    alignmentResult,
+    homologySubjectName,
+    structureResult,
+  ]);
+
+  // Formal PDF screening summary report generator
+  const handleDownloadPdfReport = () => {
+    if (!validationResult.isValid) {
+      return;
+    }
+    setIsGeneratingPdf(true);
+
+    try {
+      const doc = generateFormalPdfReport(pdfReportPayload);
+      const safeName = (lncRnaName || 'lncRNA').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 30);
+      const dateStr = new Date().toISOString().slice(0, 10);
+      doc.save(`LISHA_Screening_Report_${safeName}_${dateStr}.pdf`);
+
+      setPdfDownloadSuccess(true);
+      setTimeout(() => setPdfDownloadSuccess(false), 4500);
+    } catch (err) {
+      console.error('Failed to generate formal PDF report:', err);
+    } finally {
+      setIsGeneratingPdf(false);
+    }
+  };
+
+  // Quick reverse complementation and antisense modeling handlers
+  const handleQuickReverseComplement = () => {
+    const clean = validationResult.cleanedSequence || lncRnaSeq;
+    if (!clean) return;
+
+    // Save previous state for 1-click Undo
+    setPreviousSequenceState({ name: lncRnaName, sequence: lncRnaSeq });
+
+    const revComp = getReverseComplement(clean, true);
+    const isAlreadyAntisense = lncRnaName.includes('(Antisense') || lncRnaName.includes('_RevComp');
+    const newName = isAlreadyAntisense
+      ? lncRnaName.replace(/\s*\((Antisense|RevComp)[^)]*\)/g, '').replace(/_RevComp/g, '')
+      : `${lncRnaName} (Antisense / RevComp)`;
+
+    setLncRnaSeq(revComp);
+    setLncRnaName(newName);
+    setRevCompNotification({
+      show: true,
+      message: `Generated reverse complement (${revComp.length} nt) in 5' → 3' antisense orientation. Re-screening all modules active.`,
+    });
+  };
+
+  const handleUndoReverseComplement = () => {
+    if (previousSequenceState) {
+      setLncRnaName(previousSequenceState.name);
+      setLncRnaSeq(previousSequenceState.sequence);
+      setPreviousSequenceState(null);
+      setRevCompNotification({
+        show: true,
+        message: 'Restored original query sequence orientation.',
+      });
+      setTimeout(() => {
+        setRevCompNotification((prev) => (prev?.show ? { ...prev, show: false } : null));
+      }, 3500);
+    }
+  };
+
+  const handleApplyReverseComplement = (revCompSeq: string, newName: string) => {
+    setPreviousSequenceState({ name: lncRnaName, sequence: lncRnaSeq });
+    setLncRnaSeq(revCompSeq);
+    setLncRnaName(newName);
+    setRevCompNotification({
+      show: true,
+      message: `Applied reverse complement (${revCompSeq.length} nt) to query sequence. Re-screening all 8 modules.`,
+    });
+  };
+
+  const handleLaunchPairwiseWithAntisense = (
+    seq1: { name: string; sequence: string },
+    seq2: { name: string; sequence: string }
+  ) => {
+    setLncRnaName(seq1.name);
+    setLncRnaSeq(seq1.sequence);
+    setHomologySubjectName(seq2.name);
+    setHomologySubjectSeq(seq2.sequence);
+    setEngineMode('pairwise');
+  };
 
   // Sync prefill if provided
   React.useEffect(() => {
@@ -243,6 +389,21 @@ export const ScreeningEngine: React.FC<ScreeningEngineProps> = ({
           </button>
 
           <button
+            onClick={() => setEngineMode('pairwise')}
+            className={`px-3.5 py-1.5 rounded-md text-xs font-bold flex items-center gap-2 transition-all cursor-pointer ${
+              engineMode === 'pairwise'
+                ? 'bg-white text-indigo-800 shadow-xs ring-1 ring-indigo-200'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <ArrowLeftRight className="w-3.5 h-3.5 text-indigo-600" />
+            <span>Pairwise Alignment</span>
+            <span className="px-1.5 py-0.2 bg-indigo-100 text-indigo-800 rounded text-[10px] font-extrabold uppercase">
+              Needleman-Wunsch
+            </span>
+          </button>
+
+          <button
             onClick={() => setEngineMode('batch')}
             className={`px-3.5 py-1.5 rounded-md text-xs font-bold flex items-center gap-2 transition-all cursor-pointer ${
               engineMode === 'batch'
@@ -278,6 +439,16 @@ export const ScreeningEngine: React.FC<ScreeningEngineProps> = ({
           <span>ICAR-NIBSM Computational Core Active</span>
         </div>
       </div>
+
+      {/* Mode: Pairwise Alignment Tool */}
+      {engineMode === 'pairwise' && (
+        <PairwiseAlignmentTool
+          initialSeq1={{ name: lncRnaName, sequence: lncRnaSeq }}
+          initialSeq2={{ name: homologySubjectName, sequence: homologySubjectSeq }}
+          onSaveAnalysis={onSaveAnalysis}
+          onRequestGeminiInterpretation={onRequestGeminiInterpretation}
+        />
+      )}
 
       {/* Mode 2: Batch Screening Engine */}
       {engineMode === 'batch' && (
@@ -341,9 +512,51 @@ export const ScreeningEngine: React.FC<ScreeningEngineProps> = ({
             >
               lncRNA16397 (Tomato Late Blight)
             </button>
+            <div className="flex items-center gap-1 ml-auto">
+              <button
+                onClick={handleDownloadPdfReport}
+                disabled={isGeneratingPdf || !validationResult.isValid}
+                className={`px-3 py-1 text-xs font-bold rounded-l-full flex items-center gap-1.5 transition-all shadow-2xs cursor-pointer ${
+                  !validationResult.isValid
+                    ? 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed'
+                    : isGeneratingPdf
+                    ? 'bg-indigo-400 text-white cursor-wait'
+                    : 'bg-indigo-600 hover:bg-indigo-700 text-white'
+                }`}
+                title={!validationResult.isValid ? 'Fix validation errors to export' : '1-Click download formal publication-ready PDF screening report'}
+              >
+                <FileDown className="w-3.5 h-3.5" />
+                <span>{isGeneratingPdf ? 'Generating PDF...' : 'Download PDF Report'}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsPdfModalOpen(true)}
+                disabled={!validationResult.isValid}
+                className={`px-2 py-1 text-xs font-bold rounded-r-full bg-indigo-700 hover:bg-indigo-800 text-white transition-all shadow-2xs cursor-pointer ${
+                  !validationResult.isValid ? 'opacity-50 cursor-not-allowed' : ''
+                }`}
+                title="Configure PDF report sections, custom remarks, and preview"
+              >
+                <Sliders className="w-3.5 h-3.5" />
+              </button>
+            </div>
+            <button
+              type="button"
+              onClick={() => submitNcbiBlast(validationResult.cleanedSequence || lncRnaSeq, lncRnaName)}
+              disabled={!validationResult.isValid}
+              className={`px-3 py-1 text-xs font-bold rounded-full flex items-center gap-1.5 transition-all shadow-2xs ${
+                !validationResult.isValid
+                  ? 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed'
+                  : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-300 cursor-pointer'
+              }`}
+              title="Open NCBI Nucleotide BLAST (blastn) in a new tab with current sequence pre-filled for homology searching"
+            >
+              <ExternalLink className="w-3.5 h-3.5 text-emerald-700" />
+              <span>NCBI BLAST</span>
+            </button>
             <button
               onClick={() => setEngineMode('batch')}
-              className="px-3 py-1 text-xs font-bold rounded-full bg-emerald-600 hover:bg-emerald-700 text-white flex items-center gap-1.5 transition-colors shadow-2xs ml-auto cursor-pointer"
+              className="px-3 py-1 text-xs font-bold rounded-full bg-emerald-600 hover:bg-emerald-700 text-white flex items-center gap-1.5 transition-colors shadow-2xs cursor-pointer"
             >
               <ListFilter className="w-3.5 h-3.5" />
               <span>Batch Screening Mode</span>
@@ -352,7 +565,7 @@ export const ScreeningEngine: React.FC<ScreeningEngineProps> = ({
         </div>
 
         {/* Module Selector Pill Bar */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-10 gap-2 pt-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-12 gap-2 pt-4">
           <button
             onClick={() => setActiveModule('protein')}
             className={`p-2.5 rounded-lg border text-left transition-all cursor-pointer ${
@@ -482,11 +695,43 @@ export const ScreeningEngine: React.FC<ScreeningEngineProps> = ({
           </button>
 
           <button
+            onClick={() => setActiveModule('network')}
+            className={`p-2.5 rounded-lg border text-left transition-all cursor-pointer ${
+              activeModule === 'network'
+                ? 'bg-indigo-50 border-indigo-400 shadow-xs ring-1 ring-indigo-300'
+                : 'bg-slate-50 border-slate-200 hover:bg-white'
+            }`}
+          >
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-700">Module 9</span>
+              <Share2 className="w-3.5 h-3.5 text-indigo-600" />
+            </div>
+            <div className="text-xs font-semibold text-slate-900 leading-tight">Target Network</div>
+            <div className="text-[10px] text-indigo-700 font-semibold truncate">D3 Force Graph</div>
+          </button>
+
+          <button
+            onClick={() => setActiveModule('orf-map')}
+            className={`p-2.5 rounded-lg border text-left transition-all cursor-pointer ${
+              activeModule === 'orf-map'
+                ? 'bg-indigo-50 border-indigo-400 shadow-xs ring-1 ring-indigo-300'
+                : 'bg-slate-50 border-slate-200 hover:bg-white'
+            }`}
+          >
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-700">Module 10</span>
+              <Dna className="w-3.5 h-3.5 text-indigo-600" />
+            </div>
+            <div className="text-xs font-semibold text-slate-900 leading-tight">ORF Sequence Map</div>
+            <div className="text-[10px] text-indigo-700 font-semibold truncate">Reading Frames +1/+2/+3</div>
+          </button>
+
+          <button
             onClick={() => setEngineMode('batch')}
             className="p-2.5 rounded-lg border text-left transition-all cursor-pointer bg-emerald-50/70 border-emerald-300 hover:bg-emerald-100 hover:border-emerald-400 group"
           >
             <div className="flex items-center justify-between mb-1">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-800">Module 9</span>
+              <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-800">Mode 2</span>
               <ListFilter className="w-3.5 h-3.5 text-emerald-600 group-hover:scale-110 transition-transform" />
             </div>
             <div className="text-xs font-semibold text-slate-900 leading-tight">Batch Mode</div>
@@ -498,7 +743,7 @@ export const ScreeningEngine: React.FC<ScreeningEngineProps> = ({
             className="p-2.5 rounded-lg border text-left transition-all cursor-pointer bg-indigo-50/70 border-indigo-300 hover:bg-indigo-100 hover:border-indigo-400 group"
           >
             <div className="flex items-center justify-between mb-1">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-800">Module 10</span>
+              <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-800">Mode 3</span>
               <AlignLeft className="w-3.5 h-3.5 text-indigo-600 group-hover:scale-110 transition-transform" />
             </div>
             <div className="text-xs font-semibold text-slate-900 leading-tight">Multi-Seq MSA</div>
@@ -506,6 +751,28 @@ export const ScreeningEngine: React.FC<ScreeningEngineProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Formal PDF Report Download Feedback Notification */}
+      {pdfDownloadSuccess && (
+        <div className="flex items-center justify-between p-3.5 bg-emerald-50 border border-emerald-300 rounded-xl text-xs text-emerald-900 shadow-xs animate-in fade-in duration-200">
+          <div className="flex items-center gap-2.5">
+            <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+            <div>
+              <strong className="font-bold text-emerald-950">Formal PDF Screening Report Generated & Downloaded</strong>
+              <div className="text-[11px] text-emerald-800 mt-0.5">
+                Successfully compiled publication-ready summary report containing the validated nucleotide sequence, identified regulatory motifs, 2D secondary structure dot-bracket fold, and computational interaction scores.
+              </div>
+            </div>
+          </div>
+          <button
+            onClick={() => setPdfDownloadSuccess(false)}
+            className="text-emerald-700 hover:text-emerald-950 p-1.5 rounded-lg hover:bg-emerald-100 transition-colors"
+            title="Dismiss notification"
+          >
+            <Check className="w-4 h-4" />
+          </button>
+        </div>
+      )}
 
       {/* If Module 4 D3 Matrix view is active, render full-width workspace with sleek query bar */}
       {activeModule === 'homology' && homologyViewMode === 'matrix' ? (
@@ -538,6 +805,32 @@ export const ScreeningEngine: React.FC<ScreeningEngineProps> = ({
                 {cleanLncRna.length} nt • GC: {gcPct}%
               </span>
               <button
+                onClick={() => setIsRevCompModalOpen(true)}
+                disabled={!validationResult.isValid}
+                className={`px-2.5 py-1 rounded text-xs font-semibold flex items-center gap-1 transition-colors ${
+                  !validationResult.isValid
+                    ? 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed'
+                    : 'bg-indigo-50 border border-indigo-200 hover:bg-indigo-100 text-indigo-700 cursor-pointer'
+                }`}
+                title={!validationResult.isValid ? 'Fix validation errors' : 'Inspect and generate reverse complement sequence'}
+              >
+                <ArrowLeftRight className="w-3 h-3 text-indigo-600" />
+                <span>Rev-Comp</span>
+              </button>
+              <button
+                onClick={handleDownloadPdfReport}
+                disabled={isGeneratingPdf || !validationResult.isValid}
+                className={`px-2.5 py-1 rounded text-xs font-semibold flex items-center gap-1 transition-colors ${
+                  !validationResult.isValid
+                    ? 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed'
+                    : 'bg-blue-50 border border-blue-200 hover:bg-blue-100 text-blue-700 cursor-pointer'
+                }`}
+                title={!validationResult.isValid ? 'Fix validation errors to export' : 'Generate and download formal PDF screening summary report'}
+              >
+                <FileText className="w-3 h-3 text-blue-600" />
+                <span>{isGeneratingPdf ? 'PDF...' : 'Formal PDF Report'}</span>
+              </button>
+              <button
                 onClick={() => setIsFastaModalOpen(true)}
                 disabled={!validationResult.isValid}
                 className={`px-2.5 py-1 rounded text-xs font-semibold flex items-center gap-1 transition-colors ${
@@ -549,6 +842,20 @@ export const ScreeningEngine: React.FC<ScreeningEngineProps> = ({
               >
                 <FileDown className="w-3 h-3 text-indigo-600" />
                 <span>Export FASTA</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => submitNcbiBlast(validationResult.cleanedSequence || lncRnaSeq, lncRnaName)}
+                disabled={!validationResult.isValid}
+                className={`px-2.5 py-1 rounded text-xs font-semibold flex items-center gap-1 transition-colors ${
+                  !validationResult.isValid
+                    ? 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed'
+                    : 'bg-emerald-50 border border-emerald-200 hover:bg-emerald-100 text-emerald-700 cursor-pointer'
+                }`}
+                title={!validationResult.isValid ? 'Fix sequence validation errors' : 'Open NCBI Nucleotide BLAST in a new tab with current sequence pre-filled for homology searching'}
+              >
+                <ExternalLink className="w-3 h-3 text-emerald-600" />
+                <span>NCBI BLAST</span>
               </button>
               <button
                 onClick={() => setIsQueryEditorOpen(!isQueryEditorOpen)}
@@ -567,13 +874,36 @@ export const ScreeningEngine: React.FC<ScreeningEngineProps> = ({
                 <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider">
                   Edit Query lncRNA Sequence
                 </h4>
-                <button
-                  onClick={() => handleCopySequence(cleanLncRna)}
-                  className="text-xs text-blue-600 hover:text-blue-700 flex items-center gap-1 cursor-pointer"
-                >
-                  {copied ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
-                  <span>{copied ? 'Copied' : 'Copy'}</span>
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleQuickReverseComplement}
+                    disabled={!validationResult.isValid}
+                    className="text-xs text-indigo-700 hover:text-indigo-900 flex items-center gap-1 font-semibold cursor-pointer"
+                    title="1-Click quick invert to 5' → 3' Reverse Complement"
+                  >
+                    <ArrowLeftRight className="w-3 h-3 text-indigo-600" />
+                    <span>⇄ Rev-Comp</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsRevCompModalOpen(true)}
+                    disabled={!validationResult.isValid}
+                    className="text-xs text-indigo-700 hover:text-indigo-900 flex items-center gap-1 font-semibold cursor-pointer"
+                    title="Open Reverse Complement & Duplex Modeling Utility"
+                  >
+                    <Sliders className="w-3 h-3" />
+                    <span>Inspector</span>
+                  </button>
+                  <span className="text-slate-300">|</span>
+                  <button
+                    onClick={() => handleCopySequence(cleanLncRna)}
+                    className="text-xs text-blue-600 hover:text-blue-700 flex items-center gap-1 cursor-pointer"
+                  >
+                    {copied ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
+                    <span>{copied ? 'Copied' : 'Copy'}</span>
+                  </button>
+                </div>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <div>
@@ -660,7 +990,65 @@ export const ScreeningEngine: React.FC<ScreeningEngineProps> = ({
                 <label className="text-xs font-medium text-slate-600">
                   Nucleotide Sequence (5' &rarr; 3')
                 </label>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1.5 sm:gap-2">
+                  {/* Reverse Complement Utility Buttons */}
+                  <div className="flex items-center rounded-md border border-indigo-200 bg-indigo-50/70 p-0.5">
+                    <button
+                      type="button"
+                      onClick={handleQuickReverseComplement}
+                      disabled={!validationResult.isValid}
+                      className={`text-[11px] font-bold px-2 py-0.5 rounded flex items-center gap-1 transition-colors ${
+                        !validationResult.isValid
+                          ? 'text-slate-400 cursor-not-allowed'
+                          : 'text-indigo-800 hover:bg-white hover:shadow-2xs cursor-pointer'
+                      }`}
+                      title="1-Click quick invert to 5' → 3' Reverse Complement (Antisense strand)"
+                    >
+                      <ArrowLeftRight className="w-3 h-3 text-indigo-600" />
+                      <span>⇄ Rev-Comp</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setIsRevCompModalOpen(true)}
+                      disabled={!validationResult.isValid}
+                      className={`text-[11px] font-bold px-1.5 py-0.5 rounded text-indigo-600 hover:text-indigo-900 hover:bg-white transition-colors ${
+                        !validationResult.isValid ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
+                      }`}
+                      title="Open Reverse Complement & Antisense Duplex Modeling Utility"
+                    >
+                      <Sliders className="w-3 h-3" />
+                    </button>
+                  </div>
+                  <span className="text-slate-300">|</span>
+                  <button
+                    onClick={() => setIsPdfModalOpen(true)}
+                    disabled={!validationResult.isValid}
+                    className={`text-[11px] font-semibold flex items-center gap-1 transition-colors ${
+                      !validationResult.isValid
+                        ? 'text-slate-400 cursor-not-allowed'
+                        : 'text-blue-600 hover:text-blue-800 cursor-pointer'
+                    }`}
+                    title={!validationResult.isValid ? 'Fix sequence validation errors to export' : 'Configure sections and download formal PDF screening summary report'}
+                  >
+                    <FileText className="w-3.5 h-3.5 text-blue-600" />
+                    <span>PDF Report</span>
+                  </button>
+                  <span className="text-slate-300">|</span>
+                  <button
+                    type="button"
+                    onClick={() => submitNcbiBlast(validationResult.cleanedSequence || lncRnaSeq, lncRnaName)}
+                    disabled={!validationResult.isValid}
+                    className={`text-[11px] font-semibold flex items-center gap-1 transition-colors ${
+                      !validationResult.isValid
+                        ? 'text-slate-400 cursor-not-allowed'
+                        : 'text-emerald-700 hover:text-emerald-900 cursor-pointer'
+                    }`}
+                    title={!validationResult.isValid ? 'Fix sequence validation errors to BLAST' : 'Open NCBI Nucleotide BLAST (blastn) in a new tab with current sequence pre-filled for homology searching'}
+                  >
+                    <ExternalLink className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>NCBI BLAST</span>
+                  </button>
+                  <span className="text-slate-300">|</span>
                   <button
                     onClick={() => setIsFastaModalOpen(true)}
                     disabled={!validationResult.isValid}
@@ -695,6 +1083,29 @@ export const ScreeningEngine: React.FC<ScreeningEngineProps> = ({
                 }`}
                 placeholder="Enter RNA sequence (A, C, G, U/T)..."
               />
+
+              {/* Reverse Complement Notification & 1-Click Undo Banner */}
+              {revCompNotification?.show && (
+                <div className="mt-2 p-2.5 bg-indigo-50 border border-indigo-300 rounded-lg text-xs text-indigo-950 flex items-center justify-between gap-2 animate-in fade-in duration-150">
+                  <div className="flex items-center gap-2">
+                    <ArrowLeftRight className="w-4 h-4 text-indigo-600 shrink-0" />
+                    <span className="text-[11px] font-medium leading-tight">
+                      {revCompNotification.message}
+                    </span>
+                  </div>
+                  {previousSequenceState && (
+                    <button
+                      type="button"
+                      onClick={handleUndoReverseComplement}
+                      className="px-2 py-0.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded text-[11px] font-bold flex items-center gap-1 shrink-0 transition-colors cursor-pointer shadow-2xs"
+                      title="Restore original query sequence orientation"
+                    >
+                      <RotateCcw className="w-3 h-3" />
+                      <span>Undo</span>
+                    </button>
+                  )}
+                </div>
+              )}
 
               {/* Regex Sequence Validation Diagnostics */}
               <div className="mt-2">
@@ -921,6 +1332,34 @@ export const ScreeningEngine: React.FC<ScreeningEngineProps> = ({
                 </span>
               </button>
 
+              <div className="flex items-center gap-0.5">
+                <button
+                  type="button"
+                  onClick={handleDownloadPdfReport}
+                  disabled={isGeneratingPdf || !validationResult.isValid}
+                  className={`py-2.5 px-3 rounded-l-lg border text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-2xs ${
+                    !validationResult.isValid
+                      ? 'border-slate-200 text-slate-400 bg-slate-50 cursor-not-allowed'
+                      : 'border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 hover:border-blue-300 cursor-pointer'
+                  }`}
+                  title={!validationResult.isValid ? 'Fix sequence validation errors to export' : '1-Click download formal PDF screening summary report'}
+                >
+                  <FileText className="w-3.5 h-3.5 text-blue-600" />
+                  <span>{isGeneratingPdf ? 'Compiling PDF...' : 'Download PDF Report'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsPdfModalOpen(true)}
+                  disabled={!validationResult.isValid}
+                  className={`py-2.5 px-2 rounded-r-lg border-y border-r border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100 text-xs font-semibold transition-colors cursor-pointer ${
+                    !validationResult.isValid ? 'opacity-50 cursor-not-allowed' : ''
+                  }`}
+                  title="Configure PDF report options, sections, and remarks"
+                >
+                  <Sliders className="w-3.5 h-3.5" />
+                </button>
+              </div>
+
               <button
                 type="button"
                 onClick={() => setIsFastaModalOpen(true)}
@@ -934,6 +1373,21 @@ export const ScreeningEngine: React.FC<ScreeningEngineProps> = ({
               >
                 <FileDown className="w-3.5 h-3.5 text-indigo-600" />
                 <span className="hidden sm:inline">Export</span> FASTA
+              </button>
+
+              <button
+                type="button"
+                onClick={() => submitNcbiBlast(validationResult.cleanedSequence || lncRnaSeq, lncRnaName)}
+                disabled={!validationResult.isValid}
+                className={`py-2.5 px-3 rounded-lg border text-xs font-semibold flex items-center gap-1.5 transition-colors shadow-2xs ${
+                  !validationResult.isValid
+                    ? 'border-slate-200 text-slate-400 bg-slate-50 cursor-not-allowed'
+                    : 'border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100 hover:border-emerald-300 cursor-pointer'
+                }`}
+                title="Open NCBI Nucleotide BLAST in a new tab with current sequence pre-filled for homology searching"
+              >
+                <ExternalLink className="w-3.5 h-3.5 text-emerald-600" />
+                <span className="hidden sm:inline">NCBI</span> BLAST
               </button>
 
               <button
@@ -972,6 +1426,18 @@ export const ScreeningEngine: React.FC<ScreeningEngineProps> = ({
                 <span>GC Content: {structureResult.gcContentPercent}%</span>
               </div>
             </div>
+          )}
+
+          {/* Plant-Specific Regulatory Motif Scanner (Live Scanned Matches) */}
+          {validationResult.isValid && (
+            <PlantMotifScanner
+              sequence={validationResult.cleanedSequence || lncRnaSeq}
+              lncRnaName={lncRnaName}
+              maxHeight="max-h-72"
+              onSelectMotif={() => {
+                setActiveModule('motifs');
+              }}
+            />
           )}
         </div>
 
@@ -1365,6 +1831,14 @@ export const ScreeningEngine: React.FC<ScreeningEngineProps> = ({
                     <FileText className="w-3.5 h-3.5" />
                     <span>Pairwise Alignment Traceback</span>
                   </span>
+                  <button
+                    onClick={() => setEngineMode('pairwise')}
+                    className="px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5 bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100 transition-colors cursor-pointer"
+                    title="Open dedicated Pairwise Alignment Tool with these sequences"
+                  >
+                    <ArrowLeftRight className="w-3.5 h-3.5" />
+                    <span>Open in Pairwise Alignment Tool</span>
+                  </button>
                 </div>
 
                 <span className="text-[11px] text-slate-500 font-medium">
@@ -1456,6 +1930,7 @@ export const ScreeningEngine: React.FC<ScreeningEngineProps> = ({
               name={lncRnaName}
               structureResult={structureResult}
               onExportFasta={() => setIsFastaModalOpen(true)}
+              onNavigateToOrfMap={() => setActiveModule('orf-map')}
             />
           )}
 
@@ -1486,6 +1961,31 @@ export const ScreeningEngine: React.FC<ScreeningEngineProps> = ({
               onExportFasta={() => setIsFastaModalOpen(true)}
             />
           )}
+
+          {/* Module 9: lncRNA-Target Interaction Network (D3 Force-Directed Graph) */}
+          {activeModule === 'network' && (
+            <TargetConnectivityGraph
+              lncRnaName={lncRnaName}
+              lncRnaSequence={validationResult.cleanedSequence || lncRnaSeq}
+              targetProteinName={proteinName}
+              proteinResult={proteinResult}
+              mirnaResults={mirnaResults}
+              targetDnaName={dnaTargetName}
+              triplexResults={triplexResults}
+              homologySubjectName={homologySubjectName}
+              alignmentResult={alignmentResult}
+              discoveredMotifs={pdfReportPayload.motifResult?.hits}
+            />
+          )}
+
+          {/* Module 10: Open Reading Frame (ORF) Multi-Track & Codon Map */}
+          {activeModule === 'orf-map' && (
+            <OrfMapViewer
+              sequence={validationResult.cleanedSequence || lncRnaSeq}
+              name={lncRnaName}
+              onExportFasta={() => setIsFastaModalOpen(true)}
+            />
+          )}
         </div>
       </div>
     )}
@@ -1499,6 +1999,27 @@ export const ScreeningEngine: React.FC<ScreeningEngineProps> = ({
       sequenceName={lncRnaName}
       sequence={validationResult.cleanedSequence || lncRnaSeq}
       structureResult={structureResult || undefined}
+    />
+
+    {/* Formal PDF Summary Report Export Modal */}
+    <PdfExportModal
+      isOpen={isPdfModalOpen}
+      onClose={() => setIsPdfModalOpen(false)}
+      reportData={pdfReportPayload}
+      onDownloadSuccess={() => {
+        setPdfDownloadSuccess(true);
+        setTimeout(() => setPdfDownloadSuccess(false), 4500);
+      }}
+    />
+
+    {/* Reverse Complement & Antisense Interaction Modeling Modal */}
+    <ReverseComplementModal
+      isOpen={isRevCompModalOpen}
+      onClose={() => setIsRevCompModalOpen(false)}
+      originalSequence={validationResult.cleanedSequence || lncRnaSeq}
+      lncRnaName={lncRnaName}
+      onApplyReverseComplement={handleApplyReverseComplement}
+      onOpenInPairwiseAlignment={handleLaunchPairwiseWithAntisense}
     />
   </div>
 );

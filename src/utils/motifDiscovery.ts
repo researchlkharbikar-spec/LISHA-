@@ -285,6 +285,40 @@ export const PLANT_REGULATORY_MOTIFS: RegulatoryMotifDefinition[] = [
       dot: 'bg-rose-500',
     },
   },
+  {
+    id: 'gcc_box',
+    name: 'GCC-box (Pathogen Defense)',
+    pattern: 'AGCCGCC',
+    category: 'Biotic Defense',
+    consensusDisplay: 'A-G-C-C-G-C-C',
+    targetFactorOrPathway: 'ERF / Jasmonate Pathogen Signaling',
+    description: 'Canonical pathogen-responsive element bound by ethylene response factors.',
+    significance: 'Essential for necrotrophic fungal and bacterial blight resistance cascades.',
+    biologicalContext: 'Enriched in defense-inducible promoters and biotic stress lncRNAs.',
+    colorBadge: {
+      bg: 'bg-rose-50',
+      text: 'text-rose-800',
+      border: 'border-rose-300',
+      dot: 'bg-rose-500',
+    },
+  },
+  {
+    id: 'g_box',
+    name: 'G-box (Light & Stress)',
+    pattern: 'CACGTG',
+    category: 'Abiotic Stress',
+    consensusDisplay: 'C-A-C-G-T-G',
+    targetFactorOrPathway: 'bHLH / HY5 / PIF Regulators',
+    description: 'Ubiquitous plant hexamer cis-regulatory motif in stress and photomorphogenesis.',
+    significance: 'Coordinates light signaling, circadian regulation, and abiotic stress cross-talk.',
+    biologicalContext: 'Binds bZIP and bHLH transcription factors across vascular plants.',
+    colorBadge: {
+      bg: 'bg-amber-50',
+      text: 'text-amber-800',
+      border: 'border-amber-300',
+      dot: 'bg-amber-500',
+    },
+  },
 
   // 3. RNA Processing & Stability Motifs
   {

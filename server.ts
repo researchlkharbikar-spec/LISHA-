@@ -17,7 +17,8 @@ dotenv.config();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const isProd = process.env.NODE_ENV === 'production';
-const PORT = Number(process.env.PORT) || 3000;
+// In AI Studio, nginx listens on 8080 and proxies to port 3000. Dev server must strictly run on port 3000.
+const PORT = 3000;
 
 const app = express();
 app.use(express.json({ limit: '50mb' }));
